@@ -1,4 +1,6 @@
 import pandas as pd
+import openpyxl
+from datetime import datetime
 
 class TechnicalAnalyzer:
     """
@@ -95,3 +97,7 @@ class TechnicalAnalyzer:
             print("    Warning: Colonna 'DJ_SPREAD' non trovata in self.analyzer.data per calcolo Z-Score.")
             
         print("\nAnalisi tecnica completata. I risultati sono in 'tech_analyzer.results'")
+
+
+        
+        

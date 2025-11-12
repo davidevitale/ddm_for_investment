@@ -206,23 +206,6 @@ class MarketAnalyzer:
         plt.tight_layout()
         plt.show()
 
-    def save_to_excel(self, filename="market_data.xlsx"):
-        """
-        Salva il DataFrame normalizzato combinato (prezzi e volumi)
-        in UN SINGOLO FILE EXCEL.
-        """
-        print(f"\nSaving data to Excel file...")
-        
-        try:
-            if self.data is not None:
-                # Salva il set di dati normalizzato e combinato
-                self.data.to_excel(filename)
-                print(f"Successfully saved data to {filename}")
-            else:
-                print("No data to save.")
-        except Exception as e:
-            print(f"Error saving data to {filename}: {e}")
-
     def run_analysis(self):
         """
         Esegue l'intero flusso di analisi sul dataset completo.
@@ -253,9 +236,6 @@ class MarketAnalyzer:
             
             # 5. Plotta
             self.plot_normalized_prices()
-            
-            # 6. Salva su Excel
-            self.save_to_excel("market_data.xlsx")
         else:
             print("Analysis failed: No data could be processed.")
 
