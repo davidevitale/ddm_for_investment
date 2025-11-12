@@ -1,7 +1,3 @@
-import pandas as pd
-import openpyxl
-from datetime import datetime
-
 class TechnicalAnalyzer:
     """
     Una classe per eseguire calcoli di analisi tecnica sui dati

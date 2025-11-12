@@ -1,6 +1,5 @@
 import pandas as pd
 from datetime import datetime
-from pandas import Timedelta
 
 # Import delle tue classi personalizzate
 from data2 import MarketAnalyzer
