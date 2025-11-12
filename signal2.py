@@ -8,7 +8,7 @@ class Signal:
         pass
     
     @staticmethod
-    def make_signal_from_diff(df, col_zs, col_vol, col_ema, threshold=2) -> pd.Series:
+    def make_signal(df, col_zs, col_vol, col_ema, threshold=2) -> pd.Series:
         """
         Builds discrete signals in {-1, 0, +1} using Zscore and Volumes threshold.
         """
@@ -81,3 +81,13 @@ class Signal:
                     result.at[i, "Profit"] = (result.at[i-1, "Entry_Price"] - previous_px) / result.at[i-1, "Entry_Price"] * 100
                 if previous_pos == 1:  # Exiting long
                     result.at[i, "Profit"] = (previous_px - result.at[i-1, "Entry_Price"]) / result.at[i-1, "Entry_Price"] * 100
+
+
+        result["Cumulative_Profit"] = result["Profit"].cumsum()
+        result["equity_curve"] = result["Cumulative_Profit"] + result["MToM"] + 100
+        result["max_equity"] = result["equity_curve"].cummax()
+        result["drawdown"] = result["max_equity"] - result["equity_curve"]
+        result ["max_drawdown"] = result["drawdown"].cummax()
+        result["drawdown_length"] = (result["drawdown"] > 0).astype(int).groupby(result["drawdown"].le(0).cumsum()).cumsum()
+        
+        return result
