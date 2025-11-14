@@ -24,9 +24,9 @@ def calculate_zscore(series: pd.Series, window: int) -> pd.Series:
 class SignalBuilder:
     @staticmethod
     def make_signal(df: pd.DataFrame,
-                    col_zs: str,
-                    col_vol: str,
-                    col_ema: str,
+                    col_zs: str,       # Colonna Z-score (da DJ_SPREAD)
+                    col_vol: str,      # Colonna Volume (da SPY_Volume)
+                    col_ema: str,      # Colonna EMA Vol (da SPY_Volume)
                     threshold: float = 2.0) -> pd.Series:
         """
         Costruisce segnali discreti {-1, 0, +1} usando Z-score e filtro sui volumi.
@@ -36,6 +36,7 @@ class SignalBuilder:
         """
         sig = pd.Series(0.0, index=df.index, dtype="float")
 
+        # La logica del segnale resta invariata, ma ora usa le serie corrette
         sell_condition = (df[col_zs] > threshold) & (df[col_vol] < df[col_ema])
         buy_condition  = (df[col_zs] < -threshold) & (df[col_vol] > df[col_ema])
 
@@ -48,74 +49,92 @@ class SignalBuilder:
         return sig
 
 # =========================
-# Costruzione del segnale
+# Costruzione del segnale (MODIFICATA)
 # =========================
 def build_signal(close: pd.Series,
                  volume: pd.Series,
+                 spread: pd.Series,   # <--- AGGIUNTA SERIE SPREAD
                  a: int,
                  b: int,
                  threshold: float = 2.0) -> pd.DataFrame:
     """
     Costruisce DataFrame con:
-    - EMA dei volumi (span=a)
-    - Z-score del prezzo con finestra b
+    - EMA dei volumi (span=a) su 'volume'
+    - Z-score dello spread (finestra b) su 'spread'
     - Segnale discreto via SignalBuilder
     """
-    df = pd.DataFrame({"Close": close, "Volume": volume})
-    ema_vol = calculate_ema(df["Volume"], span=a)
-    zscore  = calculate_zscore(df["Close"], window=b)
+    
+    # 1. Calcola EMA sul volume (usa 'a')
+    ema_vol = calculate_ema(volume, span=a)
+    
+    # 2. Calcola Z-score sullo SPREAD (usa 'b')
+    zscore  = calculate_zscore(spread, window=b)
 
-    df["EMA_Vol"] = ema_vol
-    df["Zscore"]  = zscore
-    df["Signal"]  = SignalBuilder.make_signal(df, "Zscore", "Volume", "EMA_Vol", threshold=2.0)
+    # 3. Assembla il DataFrame per il backtest
+    #    'Close' è il prezzo di SPY (per P&L)
+    #    'Volume' è il volume di SPY (per filtro)
+    df = pd.DataFrame({
+        "Close": close,   
+        "Volume": volume,
+        "EMA_Vol": ema_vol,
+        "Zscore": zscore
+    })
+    
+    # 4. Costruisci il segnale
+    df["Signal"]  = SignalBuilder.make_signal(df, "Zscore", "Volume", "EMA_Vol", threshold=threshold)
 
-    return df.dropna(subset=["Zscore", "EMA_Vol"])
+    # Rimuovi righe dove non abbiamo Z-score o EMA (tipicamente all'inizio)
+    return df.dropna(subset=["Zscore", "EMA_Vol", "Close", "Volume"])
 
-# =========================
-# Strategia state-machine
-# =========================
-def implement_trading_strategy(df: pd.DataFrame) -> pd.DataFrame:
+# =======================================================
+# Strategia state-machine (Versione Vettorizzata Veloce)
+# =======================================================
+def implement_trading_strategy(df: pd.DataFrame, leverage: float = 2.0) -> pd.DataFrame:
+    """
+    Versione vettorizzata (senza loop 'for') della strategia di backtesting.
+    """
     result = df.copy()
     if "Signal" not in result.columns:
         raise ValueError("df non contiene 'Signal'")
 
-    result["Position"]     = result["Signal"].shift(1).fillna(0)
-    result["Entry_Price"]  = 0.0
-    result["Profit"]       = 0.0
-    result["MToM"]         = 0.0
+    # --- Setup Iniziale ---
+    result["Position"] = result["Signal"].shift(1).fillna(0)
+    prev_pos = result["Position"].shift(1).fillna(0)
+    prev_close = result["Close"].shift(1).fillna(0) # Usa il 'Close' di SPY
 
-    for i in range(1, len(result)):
-        px        = result.iloc[i]["Close"]
-        prev_px   = result.iloc[i-1]["Close"]
-        pos       = result.iloc[i]["Position"]
-        prev_pos  = result.iloc[i-1]["Position"]
+    # --- 1. Vettorizzazione di "Entry_Price" ---
+    trade_event = (result["Position"] != prev_pos)
+    entry_px_signal = prev_close.where(trade_event & (result["Position"] != 0))
+    result["Entry_Price"] = entry_px_signal.ffill().where(result["Position"] != 0, 0.0).fillna(0)
 
-        if pos == 1:  # long
-            if prev_pos == 0:
-                result.at[i, "Entry_Price"] = prev_px
-            if prev_pos == -1:
-                result.at[i, "Profit"] = (result.at[i-1, "Entry_Price"] - prev_px) / result.at[i-1, "Entry_Price"] * 100
-                result.at[i, "Entry_Price"] = prev_px
-            if prev_pos == 1:
-                result.at[i, "Entry_Price"] = result.at[i-1, "Entry_Price"]
-            result.at[i, "MToM"] = (px - result.at[i, "Entry_Price"]) / result.at[i, "Entry_Price"] * 100
+    # --- 2. Vettorizzazione di "Profit" ---
+    prev_entry_price = result["Entry_Price"].shift(1).fillna(0)
+    
+    # I profitti sono calcolati sul 'Close' di SPY
+    profit_long_trades = ((prev_close - prev_entry_price) / prev_entry_price * 100) * leverage 
+    profit_short_trades = ((prev_entry_price - prev_close) / prev_entry_price * 100) * leverage 
+    
+    profit_long_trades = profit_long_trades.replace([np.inf, -np.inf], 0).fillna(0)
+    profit_short_trades = profit_short_trades.replace([np.inf, -np.inf], 0).fillna(0)
 
-        elif pos == -1:  # short
-            if prev_pos == 0:
-                result.at[i, "Entry_Price"] = prev_px
-            if prev_pos == 1:
-                result.at[i, "Profit"] = (prev_px - result.at[i-1, "Entry_Price"]) / result.at[i-1, "Entry_Price"] * 100
-                result.at[i, "Entry_Price"] = prev_px
-            if prev_pos == -1:
-                result.at[i, "Entry_Price"] = result.at[i-1, "Entry_Price"]
-            result.at[i, "MToM"] = (result.at[i, "Entry_Price"] - px) / result.at[i, "Entry_Price"] * 100
+    cond_long_exit = (prev_pos == 1) & (result["Position"] != 1)
+    cond_short_exit = (prev_pos == -1) & (result["Position"] != -1)
 
-        else:  # flat
-            if prev_pos == -1:
-                result.at[i, "Profit"] = (result.at[i-1, "Entry_Price"] - prev_px) / result.at[i-1, "Entry_Price"] * 100
-            if prev_pos == 1:
-                result.at[i, "Profit"] = (prev_px - result.at[i-1, "Entry_Price"]) / result.at[i-1, "Entry_Price"] * 100
+    result["Profit"] = 0.0
+    result["Profit"] = np.where(cond_long_exit, profit_long_trades, 0.0)
+    result["Profit"] = np.where(cond_short_exit, profit_short_trades, result["Profit"])
 
+    # --- 3. Vettorizzazione di "MToM" ---
+    # Il MToM è calcolato sul 'Close' di SPY
+    mtom_long = ((result["Close"] - result["Entry_Price"]) / result["Entry_Price"] * 100) * leverage
+    mtom_short = ((result["Entry_Price"] - result["Close"]) / result["Entry_Price"] * 100) * leverage
+    
+    result["MToM"] = 0.0
+    result["MToM"] = np.where(result["Position"] == 1, mtom_long, 0.0)
+    result["MToM"] = np.where(result["Position"] == -1, mtom_short, result["MToM"])
+    result["MToM"] = result["MToM"].replace([np.inf, -np.inf], 0).fillna(0)
+
+    # --- 4. Calcoli Finali ---
     result["Cumulative_Profit"] = result["Profit"].cumsum()
     result["equity_curve"]      = result["Cumulative_Profit"] + result["MToM"] + 100
     result["max_equity"]        = result["equity_curve"].cummax()
@@ -131,7 +150,7 @@ def implement_trading_strategy(df: pd.DataFrame) -> pd.DataFrame:
 def evaluate_performance(trade_df: pd.DataFrame) -> Dict[str, float]:
     eq = trade_df["equity_curve"].values
     if len(eq) < 2:
-        return {"max_drawdown": 0.0, "sharpe": 0.0, "total_return": 0.0, "trades_count": 0}
+        return {"max_drawdown": 0.0, "sharpe": 0.0, "total_return": 0.0, "trades_count": 0, "calmar_ratio": 0.0, "cagr": 0.0}
 
     daily = np.diff(eq)
     vol = daily.std()
@@ -139,43 +158,70 @@ def evaluate_performance(trade_df: pd.DataFrame) -> Dict[str, float]:
     total_return = float(eq[-1] - eq[0])
     max_dd = float(trade_df["max_drawdown"].iloc[-1]) if not trade_df["max_drawdown"].isna().all() else 0.0
     trades_count = int((trade_df["Position"].diff().abs() > 0).sum())
+    
+    roll_max = np.maximum.accumulate(eq)
+    drawdown = (eq - roll_max) / roll_max 
+    max_dd_pct = np.max(-drawdown) 
+
+    num_days = len(eq) - 1
+    num_years = num_days / 252.0
+    if eq[0] <= 0 or eq[-1] <= 0 or num_years <= 0:
+        cagr = 0.0
+    else:
+        cagr = ((eq[-1] / eq[0]) ** (1.0 / num_years)) - 1.0
+    
+    if max_dd_pct is None or max_dd_pct <= 1e-9:
+        calmar_ratio = 1e9 if cagr > 0 else 0.0 
+    else:
+        calmar_ratio = cagr / max_dd_pct
 
     return {
-        "max_drawdown": max_dd,
+        "max_drawdown": max_dd, 
         "sharpe": sharpe,
         "total_return": total_return,
-        "trades_count": trades_count
+        "trades_count": trades_count,
+        "calmar_ratio": calmar_ratio, 
+        "cagr": cagr
     }
 
+# --- FITNESS (MODIFICATA) ---
 def fitness(close: pd.Series,
             volume: pd.Series,
+            spread: pd.Series,   # <--- AGGIUNTO
             a: int,
             b: int,
+            leverage: float,         
             min_sharpe: float = 0.0,
             min_return: float = 0.0) -> float:
-    sig_df = build_signal(close, volume, a=a, b=b, threshold=2.0)
+    
+    # Passa tutte e 3 le serie
+    sig_df = build_signal(close, volume, spread, a=a, b=b, threshold=2.0)
+    
     if sig_df.empty:
         return 1e9
-    trade_df = implement_trading_strategy(sig_df)
+        
+    trade_df = implement_trading_strategy(sig_df, leverage=leverage) 
     m = evaluate_performance(trade_df)
 
     if m["trades_count"] == 0 or m["sharpe"] < min_sharpe or m["total_return"] < min_return:
         return 1e9
 
-    return m["max_drawdown"]
+    return -m["calmar_ratio"]
 
 # =========================
 # Algoritmo genetico
 # =========================
 class GeneticAlgorithmAB:
     def __init__(self,
-                 population_size: int = 20,
+                 population_size: int = 50,
                  mutation_rate: float = 0.2,
                  crossover_rate: float = 0.8,
                  a_bounds: Tuple[int, int] = (5, 50),
                  b_bounds: Tuple[int, int] = (5, 50),
                  min_sharpe: float = 0.0,
-                 min_return: float = 0.0):
+                 min_return: float = 0.0,
+                 leverage: float = 2.0):
+        
         self.population_size = population_size
         self.mutation_rate   = mutation_rate
         self.crossover_rate  = crossover_rate
@@ -183,11 +229,12 @@ class GeneticAlgorithmAB:
         self.b_bounds        = b_bounds
         self.min_sharpe      = min_sharpe
         self.min_return      = min_return
+        self.leverage        = leverage        
 
     def create_individual(self) -> Dict[str, int]:
         return {
-            "a": random.randint(*self.a_bounds),
-            "b": random.randint(*self.b_bounds)
+            "a": random.randint(*self.a_bounds), # Per EMA Volume
+            "b": random.randint(*self.b_bounds)  # Per Z-score Spread
         }
 
     def create_population(self) -> List[Dict[str, int]]:
@@ -196,7 +243,6 @@ class GeneticAlgorithmAB:
     def crossover(self, p1: Dict[str, int], p2: Dict[str, int]) -> Tuple[Dict[str, int], Dict[str, int]]:
         if random.random() > self.crossover_rate:
             return p1.copy(), p2.copy()
-        # single-point crossover: scambia b
         c1 = {"a": p1["a"], "b": p2["b"]}
         c2 = {"a": p2["a"], "b": p1["b"]}
         return c1, c2
@@ -207,15 +253,17 @@ class GeneticAlgorithmAB:
             out["a"] += random.randint(-5, 5)
         if random.random() < self.mutation_rate:
             out["b"] += random.randint(-5, 5)
-        # clamp bounds
         out["a"] = max(self.a_bounds[0], min(self.a_bounds[1], int(out["a"])))
         out["b"] = max(self.b_bounds[0], min(self.b_bounds[1], int(out["b"])))
         return out
 
+    # --- RUN (MODIFICATA) ---
     def run(self,
             close: pd.Series,
             volume: pd.Series,
-            generations: int = 50) -> Tuple[Dict[str, int], Dict[str, float]]:
+            spread: pd.Series,   # <--- AGGIUNTO
+            generations: int = 30) -> Tuple[Dict[str, int], Dict[str, float]]:
+        
         population = self.create_population()
         best_ind = None
         best_score = float('inf')
@@ -223,22 +271,21 @@ class GeneticAlgorithmAB:
         for gen in range(generations):
             scores = []
             for ind in population:
-                score = fitness(close, volume,
+                # Passa tutte e 3 le serie a fitness
+                score = fitness(close, volume, spread,
                                 a=ind["a"], b=ind["b"],
+                                leverage=self.leverage,
                                 min_sharpe=self.min_sharpe,
                                 min_return=self.min_return)
                 scores.append(score)
 
-            # selezione (top 50%)
             ranked = sorted(zip(scores, population), key=lambda x: x[0])
             elites = [p for _, p in ranked[:self.population_size // 2]]
 
-            # aggiorna best
             if ranked[0][0] < best_score:
                 best_score = ranked[0][0]
                 best_ind = ranked[0][1]
 
-            # genera offspring
             offspring = []
             while len(offspring) < self.population_size // 2:
                 p1, p2 = random.sample(elites, 2)
@@ -246,41 +293,86 @@ class GeneticAlgorithmAB:
                 offspring.append(self.mutate(c1))
                 if len(offspring) < self.population_size // 2:
                     offspring.append(self.mutate(c2))
-
             population = elites + offspring
 
         if best_ind is None:
             best_ind = ranked[0][1]
 
         # metriche finali
-        final_sig    = build_signal(close, volume, a=best_ind["a"], b=best_ind["b"])
-        final_trades = implement_trading_strategy(final_sig)
+        final_sig    = build_signal(close, volume, spread, a=best_ind["a"], b=best_ind["b"])
+        final_trades = implement_trading_strategy(final_sig, leverage=self.leverage)
         final_metrics = evaluate_performance(final_trades)
+        
         return best_ind, final_metrics
 
-
 # =========================
-# Esempio d'uso
+# Esecuzione con Dati Reali (MODIFICATA)
 # =========================
 if __name__ == "__main__":
     np.random.seed(42)
+    random.seed(42) 
 
-    # Simula dati: prezzi e volumi
-    n_days = 500
-    close = pd.Series(100 + np.cumsum(np.random.normal(0, 1, n_days)))
-    volume = pd.Series(1000 + np.random.normal(0, 100, n_days)).abs()
+    file_path = "analisi_tecnica_test.xlsx" 
+    
+    try:
+        train_data = pd.read_excel(
+            file_path, 
+            parse_dates=True, 
+            index_col='Date'
+        )
 
-    # Inizializza GA
+        # --- ESTRAZIONE DELLE 3 SERIE ---
+        close_series = train_data["SPY"]
+        volume_series = train_data["SPY_Volume"]
+        spread_series = train_data["DJ_SPREAD"] # <--- CARICATA LA COLONNA CORRETTA
+        
+        # Allinea gli indici per sicurezza (rimuove date non comuni)
+        common_index = close_series.index.intersection(volume_series.index).intersection(spread_series.index)
+        close_series = close_series.loc[common_index]
+        volume_series = volume_series.loc[common_index]
+        spread_series = spread_series.loc[common_index]
+        
+        if close_series.empty or volume_series.empty or spread_series.empty:
+            raise ValueError("Una delle serie è vuota dopo l'allineamento. Controlla i dati.")
+
+    except FileNotFoundError:
+        print(f"Errore: File non trovato a {file_path}")
+        exit()
+    except KeyError as e:
+        print(f"Errore: La colonna {e} non è stata trovata nel tuo file.")
+        print("Assicurati che 'SPY', 'SPY_Volume' e 'DJ_SPREAD' siano presenti.")
+        exit()
+    except Exception as e:
+        print(f"Errore generico durante il caricamento dei dati: {e}")
+        exit()
+
+    print(f"Dati caricati con successo: {len(close_series)} giorni di dati allineati.")
+    print("Avvio ottimizzazione Algoritmo Genetico (Leva 2x) per massimizzare il Calmar Ratio...")
+    
     ga = GeneticAlgorithmAB(
-        population_size=10,
+        population_size=50,   
         mutation_rate=0.2,
         crossover_rate=0.8,
-        a_bounds=(5, 30),
-        b_bounds=(5, 30),
-        min_sharpe=0.0,
-        min_return=0.0
+        a_bounds=(5, 30),     # Limiti per span EMA Volume
+        b_bounds=(5, 30),     # Limiti per finestra Z-score Spread
+        min_sharpe=0.1,       
+        min_return=0.0,
+        leverage=2.0
     )
 
-    best_params, metrics = ga.run(close, volume, generations=20)
-    print("Parametri ottimali:", best_params)
-    print("Metriche:", metrics)
+    # Esegui il GA (passa tutte e 3 le serie)
+    best_params, metrics = ga.run(
+        close_series, 
+        volume_series, 
+        spread_series, # <--- PASSATA LA SERIE DELLO SPREAD
+        generations=30
+    )
+
+    print("\n--- Ottimizzazione Completata (Leva 2x, Z-score su DJ_SPREAD) ---")
+    print(f"Parametri ottimali trovati:")
+    print(f"  a (Span EMA Volume SPY): {best_params['a']}")
+    print(f"  b (Window Z-score DJ_SPREAD): {best_params['b']}")
+    
+    print("\nMetriche finali sul Training Set:")
+    for key, value in metrics.items():
+        print(f"   - {key}: {value:.4f}")
