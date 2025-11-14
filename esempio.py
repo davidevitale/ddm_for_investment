@@ -36,7 +36,6 @@ class SignalBuilder:
         """
         sig = pd.Series(0.0, index=df.index, dtype="float")
 
-        # La logica del segnale resta invariata, ma ora usa le serie corrette
         sell_condition = (df[col_zs] > threshold) & (df[col_vol] < df[col_ema])
         buy_condition  = (df[col_zs] < -threshold) & (df[col_vol] > df[col_ema])
 
@@ -49,7 +48,7 @@ class SignalBuilder:
         return sig
 
 # =========================
-# Costruzione del segnale (MODIFICATA)
+# Costruzione del segnale
 # =========================
 def build_signal(close: pd.Series,
                  volume: pd.Series,
@@ -71,8 +70,6 @@ def build_signal(close: pd.Series,
     zscore  = calculate_zscore(spread, window=b)
 
     # 3. Assembla il DataFrame per il backtest
-    #    'Close' è il prezzo di SPY (per P&L)
-    #    'Volume' è il volume di SPY (per filtro)
     df = pd.DataFrame({
         "Close": close,   
         "Volume": volume,
@@ -83,13 +80,12 @@ def build_signal(close: pd.Series,
     # 4. Costruisci il segnale
     df["Signal"]  = SignalBuilder.make_signal(df, "Zscore", "Volume", "EMA_Vol", threshold=threshold)
 
-    # Rimuovi righe dove non abbiamo Z-score o EMA (tipicamente all'inizio)
     return df.dropna(subset=["Zscore", "EMA_Vol", "Close", "Volume"])
 
 # =======================================================
 # Strategia state-machine (Versione Vettorizzata Veloce)
 # =======================================================
-def implement_trading_strategy(df: pd.DataFrame, leverage: float = 2.0) -> pd.DataFrame:
+def implement_trading_strategy(df: pd.DataFrame, leverage: float = 4.0) -> pd.DataFrame: # <--- MODIFICA LEVA
     """
     Versione vettorizzata (senza loop 'for') della strategia di backtesting.
     """
@@ -111,8 +107,8 @@ def implement_trading_strategy(df: pd.DataFrame, leverage: float = 2.0) -> pd.Da
     prev_entry_price = result["Entry_Price"].shift(1).fillna(0)
     
     # I profitti sono calcolati sul 'Close' di SPY
-    profit_long_trades = ((prev_close - prev_entry_price) / prev_entry_price * 100) * leverage 
-    profit_short_trades = ((prev_entry_price - prev_close) / prev_entry_price * 100) * leverage 
+    profit_long_trades = ((prev_close - prev_entry_price) / prev_entry_price * 100) * leverage # <--- USA LEVA
+    profit_short_trades = ((prev_entry_price - prev_close) / prev_entry_price * 100) * leverage # <--- USA LEVA
     
     profit_long_trades = profit_long_trades.replace([np.inf, -np.inf], 0).fillna(0)
     profit_short_trades = profit_short_trades.replace([np.inf, -np.inf], 0).fillna(0)
@@ -126,8 +122,8 @@ def implement_trading_strategy(df: pd.DataFrame, leverage: float = 2.0) -> pd.Da
 
     # --- 3. Vettorizzazione di "MToM" ---
     # Il MToM è calcolato sul 'Close' di SPY
-    mtom_long = ((result["Close"] - result["Entry_Price"]) / result["Entry_Price"] * 100) * leverage
-    mtom_short = ((result["Entry_Price"] - result["Close"]) / result["Entry_Price"] * 100) * leverage
+    mtom_long = ((result["Close"] - result["Entry_Price"]) / result["Entry_Price"] * 100) * leverage # <--- USA LEVA
+    mtom_short = ((result["Entry_Price"] - result["Close"]) / result["Entry_Price"] * 100) * leverage # <--- USA LEVA
     
     result["MToM"] = 0.0
     result["MToM"] = np.where(result["Position"] == 1, mtom_long, 0.0)
@@ -190,7 +186,7 @@ def fitness(close: pd.Series,
             spread: pd.Series,   # <--- AGGIUNTO
             a: int,
             b: int,
-            leverage: float,         
+            leverage: float = 4.0,   # <--- MODIFICA LEVA
             min_sharpe: float = 0.0,
             min_return: float = 0.0) -> float:
     
@@ -220,7 +216,7 @@ class GeneticAlgorithmAB:
                  b_bounds: Tuple[int, int] = (5, 50),
                  min_sharpe: float = 0.0,
                  min_return: float = 0.0,
-                 leverage: float = 2.0):
+                 leverage: float = 4.0): # <--- MODIFICA LEVA
         
         self.population_size = population_size
         self.mutation_rate   = mutation_rate
@@ -324,7 +320,7 @@ if __name__ == "__main__":
         # --- ESTRAZIONE DELLE 3 SERIE ---
         close_series = train_data["SPY"]
         volume_series = train_data["SPY_Volume"]
-        spread_series = train_data["DJ_SPREAD"] # <--- CARICATA LA COLONNA CORRETTA
+        spread_series = train_data["DJ_SPREAD"] 
         
         # Allinea gli indici per sicurezza (rimuove date non comuni)
         common_index = close_series.index.intersection(volume_series.index).intersection(spread_series.index)
@@ -347,7 +343,7 @@ if __name__ == "__main__":
         exit()
 
     print(f"Dati caricati con successo: {len(close_series)} giorni di dati allineati.")
-    print("Avvio ottimizzazione Algoritmo Genetico (Leva 2x) per massimizzare il Calmar Ratio...")
+    print("Avvio ottimizzazione Algoritmo Genetico (Leva 4x) per massimizzare il Calmar Ratio...") # <--- MODIFICA STAMPA
     
     ga = GeneticAlgorithmAB(
         population_size=50,   
@@ -357,7 +353,7 @@ if __name__ == "__main__":
         b_bounds=(5, 30),     # Limiti per finestra Z-score Spread
         min_sharpe=0.1,       
         min_return=0.0,
-        leverage=2.0
+        leverage=4.0          # <--- IMPOSTAZIONE LEVA 4x
     )
 
     # Esegui il GA (passa tutte e 3 le serie)
@@ -368,7 +364,7 @@ if __name__ == "__main__":
         generations=30
     )
 
-    print("\n--- Ottimizzazione Completata (Leva 2x, Z-score su DJ_SPREAD) ---")
+    print("\n--- Ottimizzazione Completata (Leva 4x, Z-score su DJ_SPREAD) ---") # <--- MODIFICA STAMPA
     print(f"Parametri ottimali trovati:")
     print(f"  a (Span EMA Volume SPY): {best_params['a']}")
     print(f"  b (Window Z-score DJ_SPREAD): {best_params['b']}")
