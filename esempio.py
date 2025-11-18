@@ -71,7 +71,7 @@ def build_signal(close: pd.Series,
 
     # 3. Assembla il DataFrame per il backtest
     df = pd.DataFrame({
-        "Close": close,   
+        "Adj Close": close,   
         "Volume": volume,
         "EMA_Vol": ema_vol,
         "Zscore": zscore
@@ -80,12 +80,12 @@ def build_signal(close: pd.Series,
     # 4. Costruisci il segnale
     df["Signal"]  = SignalBuilder.make_signal(df, "Zscore", "Volume", "EMA_Vol", threshold=threshold)
 
-    return df.dropna(subset=["Zscore", "EMA_Vol", "Close", "Volume"])
+    return df.dropna(subset=["Zscore", "EMA_Vol", "Adj Close", "Volume"])
 
 # =======================================================
 # Strategia state-machine (Versione Vettorizzata Veloce)
 # =======================================================
-def implement_trading_strategy(df: pd.DataFrame, leverage: float = 4.0) -> pd.DataFrame: # <--- MODIFICA LEVA
+def implement_trading_strategy(df: pd.DataFrame, leverage: float = 2.0) -> pd.DataFrame: # <--- MODIFICA LEVA
     """
     Versione vettorizzata (senza loop 'for') della strategia di backtesting.
     """
@@ -96,7 +96,7 @@ def implement_trading_strategy(df: pd.DataFrame, leverage: float = 4.0) -> pd.Da
     # --- Setup Iniziale ---
     result["Position"] = result["Signal"].shift(1).fillna(0)
     prev_pos = result["Position"].shift(1).fillna(0)
-    prev_close = result["Close"].shift(1).fillna(0) # Usa il 'Close' di SPY
+    prev_close = result["Adj Close"].shift(1).fillna(0) # Usa il 'Close' di SPY
 
     # --- 1. Vettorizzazione di "Entry_Price" ---
     trade_event = (result["Position"] != prev_pos)
@@ -122,8 +122,8 @@ def implement_trading_strategy(df: pd.DataFrame, leverage: float = 4.0) -> pd.Da
 
     # --- 3. Vettorizzazione di "MToM" ---
     # Il MToM è calcolato sul 'Close' di SPY
-    mtom_long = ((result["Close"] - result["Entry_Price"]) / result["Entry_Price"] * 100) * leverage # <--- USA LEVA
-    mtom_short = ((result["Entry_Price"] - result["Close"]) / result["Entry_Price"] * 100) * leverage # <--- USA LEVA
+    mtom_long = ((result["Adj Close"] - result["Entry_Price"]) / result["Entry_Price"] * 100) * leverage # <--- USA LEVA
+    mtom_short = ((result["Entry_Price"] - result["Adj Close"]) / result["Entry_Price"] * 100) * leverage # <--- USA LEVA
     
     result["MToM"] = 0.0
     result["MToM"] = np.where(result["Position"] == 1, mtom_long, 0.0)
@@ -186,7 +186,7 @@ def fitness(close: pd.Series,
             spread: pd.Series,   # <--- AGGIUNTO
             a: int,
             b: int,
-            leverage: float = 4.0,   # <--- MODIFICA LEVA
+            leverage: float = 2.0,   # <--- MODIFICA LEVA
             min_sharpe: float = 0.0,
             min_return: float = 0.0) -> float:
     
@@ -216,7 +216,7 @@ class GeneticAlgorithmAB:
                  b_bounds: Tuple[int, int] = (5, 50),
                  min_sharpe: float = 0.0,
                  min_return: float = 0.0,
-                 leverage: float = 4.0): # <--- MODIFICA LEVA
+                 leverage: float = 2.0): # <--- MODIFICA LEVA
         
         self.population_size = population_size
         self.mutation_rate   = mutation_rate
@@ -302,49 +302,65 @@ class GeneticAlgorithmAB:
         return best_ind, final_metrics
 
 # =========================
-# Esecuzione con Dati Reali (MODIFICATA)
+# Funzione Helper Caricamento
 # =========================
-if __name__ == "__main__":
-    np.random.seed(42)
-    random.seed(42) 
-
-    file_path = "analisi_tecnica_test.xlsx" 
-    
+def load_data_series(file_path: str) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    """Carica e prepara le serie da un file Excel."""
+    print(f"\nCaricamento dati da: {file_path}")
     try:
-        train_data = pd.read_excel(
+        data = pd.read_excel(
             file_path, 
             parse_dates=True, 
             index_col='Date'
         )
 
         # --- ESTRAZIONE DELLE 3 SERIE ---
-        close_series = train_data["SPY"]
-        volume_series = train_data["SPY_Volume"]
-        spread_series = train_data["DJ_SPREAD"] 
+        close_series = data["SPY"]
+        volume_series = data["SPY_Volume"]
+        spread_series = data["DJ_SPREAD"] 
         
-        # Allinea gli indici per sicurezza (rimuove date non comuni)
+        # Allinea gli indici per sicurezza
         common_index = close_series.index.intersection(volume_series.index).intersection(spread_series.index)
         close_series = close_series.loc[common_index]
         volume_series = volume_series.loc[common_index]
         spread_series = spread_series.loc[common_index]
         
         if close_series.empty or volume_series.empty or spread_series.empty:
-            raise ValueError("Una delle serie è vuota dopo l'allineamento. Controlla i dati.")
+            raise ValueError("Una delle serie è vuota dopo l'allineamento.")
+        
+        print(f"Dati caricati con successo: {len(close_series)} giorni.")
+        return close_series, volume_series, spread_series
 
     except FileNotFoundError:
-        print(f"Errore: File non trovato a {file_path}")
+        print(f"ERRORE: File non trovato a {file_path}")
         exit()
     except KeyError as e:
-        print(f"Errore: La colonna {e} non è stata trovata nel tuo file.")
+        print(f"ERRORE: La colonna {e} non è stata trovata nel file.")
         print("Assicurati che 'SPY', 'SPY_Volume' e 'DJ_SPREAD' siano presenti.")
         exit()
     except Exception as e:
-        print(f"Errore generico durante il caricamento dei dati: {e}")
+        print(f"ERRORE generico durante il caricamento: {e}")
         exit()
 
-    print(f"Dati caricati con successo: {len(close_series)} giorni di dati allineati.")
-    print("Avvio ottimizzazione Algoritmo Genetico (Leva 4x) per massimizzare il Calmar Ratio...") # <--- MODIFICA STAMPA
+# ===============================================
+# Esecuzione con Dati Reali (TRAIN e TEST)
+# ===============================================
+if __name__ == "__main__":
+    np.random.seed(42)
+    random.seed(42) 
+
+    # --- Definizioni File ---
+    train_file_path = "analisi_tecnica_train.xlsx"
+    test_file_path  = "analisi_tecnica_test.xlsx"
+    LEVERAGE_SETTING = 2.0
     
+    # --- FASE 1: OTTIMIZZAZIONE (Solo su Training Set) ---
+    print("--- FASE 1: Avvio Ottimizzazione (Training Set) ---")
+    
+    # Carica i dati di training
+    train_close, train_volume, train_spread = load_data_series(train_file_path)
+
+    # Inizializza l'Algoritmo Genetico
     ga = GeneticAlgorithmAB(
         population_size=50,   
         mutation_rate=0.2,
@@ -353,22 +369,58 @@ if __name__ == "__main__":
         b_bounds=(5, 30),     # Limiti per finestra Z-score Spread
         min_sharpe=0.1,       
         min_return=0.0,
-        leverage=4.0          # <--- IMPOSTAZIONE LEVA 4x
+        leverage=LEVERAGE_SETTING
     )
 
-    # Esegui il GA (passa tutte e 3 le serie)
-    best_params, metrics = ga.run(
-        close_series, 
-        volume_series, 
-        spread_series, # <--- PASSATA LA SERIE DELLO SPREAD
+    # Esegui il GA (passa solo dati di TRAIN)
+    best_params, train_metrics = ga.run(
+        train_close, 
+        train_volume, 
+        train_spread,
         generations=30
     )
 
-    print("\n--- Ottimizzazione Completata (Leva 4x, Z-score su DJ_SPREAD) ---") # <--- MODIFICA STAMPA
+    print("\n--- Ottimizzazione (Training Set) Completata ---")
     print(f"Parametri ottimali trovati:")
     print(f"  a (Span EMA Volume SPY): {best_params['a']}")
     print(f"  b (Window Z-score DJ_SPREAD): {best_params['b']}")
     
-    print("\nMetriche finali sul Training Set:")
-    for key, value in metrics.items():
+    print("\nMetriche finali sul Training Set (In-Sample):")
+    for key, value in train_metrics.items():
         print(f"   - {key}: {value:.4f}")
+
+    
+    # --- FASE 2: BACKTEST (Solo su Test Set) ---
+    print("\n--- FASE 2: Avvio Backtest (Test Set 'Out-of-Sample') ---")
+    
+    # Carica i dati di test
+    test_close, test_volume, test_spread = load_data_series(test_file_path)
+
+    print(f"\nApplicazione parametri fissi: a={best_params['a']}, b={best_params['b']}")
+
+    # 1. Costruisci il segnale sul set di test
+    test_sig_df = build_signal(
+        test_close, 
+        test_volume, 
+        test_spread, 
+        a=best_params['a'], 
+        b=best_params['b'], 
+        threshold=2.0
+    )
+
+    if test_sig_df.empty:
+        print("ERRORE: Nessun segnale generato sul Test Set. Impossibile continuare.")
+    else:
+        # 2. Esegui la strategia sul set di test
+        test_trade_df = implement_trading_strategy(
+            test_sig_df, 
+            leverage=LEVERAGE_SETTING
+        )
+        
+        # 3. Valuta le performance sul set di test
+        test_metrics = evaluate_performance(test_trade_df)
+        
+        print("\n--- Risultati Backtest (Test Set 'Out-of-Sample') ---")
+        print("\nMetriche finali sul Test Set:")
+        for key, value in test_metrics.items():
+            print(f"   - {key}: {value:.4f}")
