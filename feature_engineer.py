@@ -5,11 +5,7 @@ class FeatureEngineer:
     @staticmethod
     def add_features(df: pd.DataFrame, sma_n: int, span_n: int) -> pd.DataFrame:
         """
-        Add technical indicators to the input DataFrame:
-        - Simple Moving Average (SMA) of the 'Difference'
-        - Standard Deviation (STDEV) of the 'Difference'
-        - Z-Score based on SMA and STDEV
-        - Exponential Moving Average (EMA) of SPY Volume
+        Add technical features to the DataFrame.
         """
         out_df = df.copy()
         
