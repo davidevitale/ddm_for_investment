@@ -24,4 +24,4 @@ if __name__ == "__main__":
     plt.plot(train_bt.index, train_bt["equity_curve"], label="Equity Curve")
     plt.title("Backtest Equity Curve")
     plt.legend()
-    plt.show()
+    #plt.show()
