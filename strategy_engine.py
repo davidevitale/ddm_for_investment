@@ -2,6 +2,9 @@ import numpy as np
 import pandas as pd
 
 class StrategyEngine:
+    """
+    StrategyEngine class to generate trading signals and execute backtests.
+    """
     def __init__(self, threshold: float = 2.0, leverage: float = 2.0):
         self.threshold = threshold
         self.leverage = leverage
@@ -9,8 +12,6 @@ class StrategyEngine:
     def create_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Generate trading signals based on z-score and volume conditions.
-        Buy signal: z_score < -threshold and volume > EMA
-        Sell signal: z_score > threshold and volume < EMA
         """
         out_df = df.copy()
         sig = pd.Series(0, index=out_df.index, dtype="int8")
@@ -27,9 +28,7 @@ class StrategyEngine:
 
     def execute_backtest(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Run backtest simulation based on generated signals.
-        Tracks positions, entry prices, profits, mark-to-market values,
-        equity curve, drawdowns, and drawdown length.
+        Execute backtest based on generated signals and calculate performance metrics.
         """
         result = df.copy()
         result["Position"] = result["Signal"].shift(1).fillna(0)
