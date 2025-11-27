@@ -1,6 +1,6 @@
 from datetime import datetime
-from data import MarketAnalyzer
-from technical_indicators import TechnicalAnalyzer
+from old.data import MarketAnalyzer
+from old.technical_indicators import TechnicalAnalyzer
 
 # --- ESECUZIONE DELLO SCRIPT ---
 

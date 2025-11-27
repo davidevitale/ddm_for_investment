@@ -2,8 +2,8 @@ import pandas as pd
 from datetime import datetime
 
 # Import delle tue classi personalizzate
-from data2 import MarketAnalyzer
-from indicators2 import TechnicalAnalyzer
+from old.data2 import MarketAnalyzer
+from old.indicators2 import TechnicalAnalyzer
 
 # --- Esempio di utilizzo ---
 
