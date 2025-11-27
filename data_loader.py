@@ -3,6 +3,9 @@ import pandas as pd
 from datetime import datetime
 
 class DataLoader:
+    """
+    DataLoader class to download and preprocess financial data.
+    """
     def __init__(self, start_date: str, split_date: str, tickers: list[str]):
         self.start_date = start_date
         self.split_date = split_date
@@ -10,6 +13,9 @@ class DataLoader:
         self.tickers = tickers
         
     def load_data(self) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Download and preprocess financial data, then split into training and evaluation sets.
+        """
         print("Downloading data...")
         t1, t2, t3 = self.tickers
         
