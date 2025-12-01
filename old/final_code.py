@@ -341,12 +341,41 @@ class PerformanceAnalyzer:
     @staticmethod
     def plot_equity(strategy_df: pd.DataFrame, title: str):
         plt.figure(figsize=(12, 6))
-        plt.plot(strategy_df.index, strategy_df['equity_curve'], label='Equity Curve', color='blue')
+        
+        # --- 1. Plot della Strategia ---
+        plt.plot(strategy_df.index, strategy_df['equity_curve'], 
+                 label='Strategy Equity', color='blue', linewidth=1.5)
+        
+        # --- 2. Plot del Benchmark (SPY) ---
+        # Verifichiamo che la colonna SPY esista (dovrebbe esserci dal DataLoader)
+        if 'SPY_Close' in strategy_df.columns:
+            # Calcoliamo il fattore di normalizzazione per far partire l'SPY da 100
+            # (100 è il capitale base usato nella tua StrategyEngine)
+            initial_capital = 100.0
+            start_price = strategy_df['SPY_Close'].iloc[0]
+            
+            # Formula: (Prezzo Corrente / Prezzo Iniziale) * Capitale Iniziale
+            spy_equity = (strategy_df['SPY_Close'] / start_price) * initial_capital
+            
+            plt.plot(strategy_df.index, spy_equity, 
+                     label='SPY (Buy & Hold)', color='gray', linestyle='--', alpha=0.7)
+
+        # --- 3. Formattazione Grafico ---
         plt.title(title)
         plt.xlabel('Date')
-        plt.ylabel('Equity')
+        plt.ylabel('Equity (Rebased to 100)')
         plt.grid(True, linestyle='--', alpha=0.6)
-        plt.legend()
+        plt.legend(loc='best') # Posiziona la legenda nel punto migliore
+        
+        # Opzionale: Aggiungi riempimento tra le linee per evidenziare outperformance
+        if 'SPY_Close' in strategy_df.columns:
+             plt.fill_between(strategy_df.index, strategy_df['equity_curve'], spy_equity, 
+                              where=(strategy_df['equity_curve'] > spy_equity),
+                              color='green', alpha=0.1, interpolate=True)
+             plt.fill_between(strategy_df.index, strategy_df['equity_curve'], spy_equity, 
+                              where=(strategy_df['equity_curve'] <= spy_equity),
+                              color='red', alpha=0.1, interpolate=True)
+
         plt.show()
 
 # ==========================================
@@ -354,7 +383,7 @@ class PerformanceAnalyzer:
 # ==========================================
 class MeanReversionApp:
     def __init__(self):
-        self.tickers = ["QQQ", "^DJI", "^DJT"]
+        self.tickers = ["SPY", "^DJI", "^DJT"]
         self.start_date = "2007-04-01"
         self.split_date = "2022-01-01"
         
