@@ -60,7 +60,7 @@ def run_pipeline(tickers: list, main_ticker: str):
 
     loader = DataLoader(start_date, split_date, tickers)
     df_train, df_eval = loader.get_data(
-        columns=[f"{main_ticker}_Close", f"{main_ticker}_Volume"],
+        columns=[f"{main_ticker}_Close", f"{main_ticker}_Volume", "^DJI_Close", "^DJT_Close"],
         main_ticker=main_ticker
     )
 

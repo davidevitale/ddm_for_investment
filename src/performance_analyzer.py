@@ -62,8 +62,11 @@ class PerformanceAnalyzer:
 
         if save_csv:
             df_metrics = pd.DataFrame(metrics.items(), columns=["Metric", "Value"])
-            df_metrics.to_csv(os.path.join(os.getcwd(), filename), index=False)
-            print(f"Metrics saved to {filename}")
+            results_dir = os.path.join(os.path.dirname(__file__), "..", "results")
+            os.makedirs(results_dir, exist_ok=True)
+            filepath = os.path.join(results_dir, filename)
+            df_metrics.to_csv(filepath, index=False)
+            print(f"Metrics saved to {filepath}")
 
         return metrics
 
@@ -102,4 +105,9 @@ class PerformanceAnalyzer:
 
         safe_title = title.replace(" ", "_").replace("/", "_")
         filename = f"{safe_title}.png"
-        plt.savefig(os.path.join(os.getcwd(), filename), dpi=300)
+
+        results_dir = os.path.join(os.path.dirname(__file__), "..", "results")
+        os.makedirs(results_dir, exist_ok=True)
+        filepath = os.path.join(results_dir, filename)
+        plt.savefig(filepath, dpi=300)
+        print(f"Equity plot saved to {filepath}")

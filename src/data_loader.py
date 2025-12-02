@@ -2,6 +2,7 @@ from typing import List, Tuple
 import pandas as pd
 import yfinance as yf
 from datetime import datetime
+import os
 
 class DataLoader:
     """
@@ -43,12 +44,7 @@ class DataLoader:
             else:
                 merged[f"{ticker}_Close"] = df["Close"]
 
-        # Compute Difference between DJI and DJT
-        if "^DJI" in data_dict and "^DJT" in data_dict:
-            merged["Difference"] = merged["^DJI_Close"] - merged["^DJT_Close"]
-
-        # Keep only selected columns (excluding DJI_Close and DJT_Close)
-        merged = merged[columns + ["Difference"]]
+        merged = merged[columns]
 
         # Drop initial NaN
         merged.dropna(inplace=True)
@@ -57,5 +53,17 @@ class DataLoader:
         df_train = merged[merged.index < self.split_date].copy()
         df_eval = merged[merged.index >= self.split_date].copy()
 
+        base_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+        raw_dir = os.path.join(base_dir, "raw")
+        processed_dir = os.path.join(base_dir, "processed")
+
+        os.makedirs(raw_dir, exist_ok=True)
+        os.makedirs(processed_dir, exist_ok=True)
+
+        merged.to_csv(os.path.join(raw_dir, "initial_data.csv"), index=True)
+        df_train.to_csv(os.path.join(processed_dir, "train_data.csv"), index=True)
+        df_eval.to_csv(os.path.join(processed_dir, "test_data.csv"), index=True)
+
         print(f"Data downloaded. Train set: {len(df_train)} rows, Eval set: {len(df_eval)} rows.")
+        
         return df_train, df_eval
