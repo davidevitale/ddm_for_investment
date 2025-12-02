@@ -109,7 +109,7 @@ class GeneticOptimizer:
                 last_best_fit = max_fit
                 last_best_ind = population[best_idx].copy()
 
-            if stable_generations >= 5:
+            if stable_generations >= 10:
                 print(f"\nEarly stopping")
                 break
 
