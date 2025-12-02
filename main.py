@@ -7,12 +7,7 @@ from feature_engineer import FeatureEngineer
 from strategy_engine import StrategyEngine
 from genetic_optimizer import GeneticOptimizer
 from performance_analyzer import PerformanceAnalyzer
-from plot import (
-    plot_equity_curves,
-    plot_drawdowns,
-    plot_return_vs_volatility,
-    plot_rolling_sharpe
-)
+from plot import plot_equity_curves
 
 # --- Logging configuration ---
 logging.basicConfig(
@@ -85,6 +80,3 @@ if __name__ == "__main__":
         run_pipeline(tickers, main_ticker)
 
     plot_equity_curves(results["SPY"], results["QQQ"])
-    plot_drawdowns(results["SPY"], results["QQQ"])
-    plot_return_vs_volatility(metrics_all["SPY"], metrics_all["QQQ"])
-    plot_rolling_sharpe(results["SPY"], results["QQQ"])
