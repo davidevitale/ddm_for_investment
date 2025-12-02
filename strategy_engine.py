@@ -5,7 +5,8 @@ class StrategyEngine:
     """
     StrategyEngine class to generate trading signals and execute backtests.
     """
-    def __init__(self, threshold: float = 2.0, leverage: float = 2.0):
+    def __init__(self, main_ticker: str, threshold: float = 2.0, leverage: float = 2.0):
+        self.main_ticker = main_ticker
         self.threshold = threshold
         self.leverage = leverage
 
@@ -16,8 +17,8 @@ class StrategyEngine:
         out_df = df.copy()
         sig = pd.Series(0, index=out_df.index, dtype="int8")
         
-        cond_buy  = (out_df["z_score"] < -self.threshold) & (out_df["SPY_Volume"] > out_df["EMA"])
-        cond_sell = (out_df["z_score"] >  self.threshold) & (out_df["SPY_Volume"] < out_df["EMA"])
+        cond_buy  = (out_df["z_score"] < -self.threshold) & (out_df[f"{self.main_ticker}_Volume"] > out_df["EMA"])
+        cond_sell = (out_df["z_score"] >  self.threshold) & (out_df[f"{self.main_ticker}_Volume"] < out_df["EMA"])
         
         sig[cond_buy]  =  1
         sig[cond_sell] = -1
@@ -37,15 +38,15 @@ class StrategyEngine:
         result["Profit"] = 0.0
         result["MToM"] = 0.0
         
-        spy_close = result["SPY_Close"].values
+        ticker_close = result[f"{self.main_ticker}_Close"].values
         position = result["Position"].values
         entry_price = np.zeros(len(result))
         profit = np.zeros(len(result))
         mtom = np.zeros(len(result))
         
         for i in range(1, len(result)):
-            px = spy_close[i]
-            prev_px = spy_close[i-1]
+            px = ticker_close[i]
+            prev_px = ticker_close[i-1]
             pos = position[i]
             prev_pos = position[i-1]
             
