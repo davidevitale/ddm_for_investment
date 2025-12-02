@@ -2,16 +2,20 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from typing import Dict
+import os
 
 class PerformanceAnalyzer:
     @staticmethod
-    def calculate_metrics(strategy_df: pd.DataFrame, initial_capital=100.0) -> Dict[str, float]:
+    def calculate_metrics(strategy_df: pd.DataFrame, initial_capital=100.0, save_csv: bool = True, filename: str = "performance_metrics.csv") -> Dict[str, float]:
+        """
+        Calculate performance metrics for a trading strategy and optionally save them to CSV.
+        """
         final_equity = strategy_df["equity_curve"].iloc[-1]
         total_return_pct = ((final_equity - initial_capital) / initial_capital) * 100
         max_dd = strategy_df["drawdown"].max()
         
         if not isinstance(strategy_df.index, pd.DatetimeIndex):
-             strategy_df.index = pd.to_datetime(strategy_df.index)
+            strategy_df.index = pd.to_datetime(strategy_df.index)
              
         start_date = strategy_df.index[0]
         end_date = strategy_df.index[-1]
@@ -43,7 +47,7 @@ class PerformanceAnalyzer:
         gross_loss = trade_returns[trade_returns < 0].abs().sum()
         profit_factor = gross_profit / gross_loss if gross_loss != 0 else 0
         
-        return {
+        metrics = {
             "Final Equity": round(final_equity, 2),
             "Total Return %": round(total_return_pct, 2),
             "CAGR %": round(cagr_pct, 2),
@@ -56,13 +60,46 @@ class PerformanceAnalyzer:
             "annualized_return %": round(annual_mean_ret*100, 4)
         }
 
+        if save_csv:
+            df_metrics = pd.DataFrame(metrics.items(), columns=["Metric", "Value"])
+            df_metrics.to_csv(os.path.join(os.getcwd(), filename), index=False)
+            print(f"Metrics saved to {filename}")
+
+        return metrics
+
     @staticmethod
-    def plot_equity(strategy_df: pd.DataFrame, title: str):
-        plt.figure(figsize=(12, 6))
-        plt.plot(strategy_df.index, strategy_df['equity_curve'], label='Equity Curve', color='blue')
-        plt.title(title)
-        plt.xlabel('Date')
-        plt.ylabel('Equity')
+    def plot_equity(strategy_df: pd.DataFrame, title: str, main_ticker: str):
+        """
+        Plot the equity curve of a trading strategy compared to a benchmark.
+        """
+        plt.figure(figsize=(14, 7))
+        
+        plt.plot(strategy_df.index, strategy_df['equity_curve'], 
+                 label='Strategy Equity', color='green', linewidth=2)
+        
+        col_name = f"{main_ticker}_Close"
+        if col_name in strategy_df.columns:
+            initial_capital = 100.0
+            start_price = strategy_df[col_name].iloc[0]
+            benchmark_equity = (strategy_df[col_name] / start_price) * initial_capital
+            
+            plt.plot(strategy_df.index, benchmark_equity, 
+                     label=f"{main_ticker} (Buy & Hold)", color='black', linestyle='--', linewidth=1.5, alpha=0.8)
+
+            plt.fill_between(strategy_df.index, strategy_df['equity_curve'], benchmark_equity, 
+                             where=(strategy_df['equity_curve'] > benchmark_equity),
+                             color='green', alpha=0.15, interpolate=True)
+            plt.fill_between(strategy_df.index, strategy_df['equity_curve'], benchmark_equity, 
+                             where=(strategy_df['equity_curve'] <= benchmark_equity),
+                             color='red', alpha=0.15, interpolate=True)
+
+        plt.title(title, fontsize=14, fontweight='bold')
+        plt.xlabel('Date', fontsize=12)
+        plt.ylabel('Equity (Rebased to 100)', fontsize=12)
         plt.grid(True, linestyle='--', alpha=0.6)
-        plt.legend()
-        plt.show()
+        plt.legend(loc='best', fontsize=11)
+        plt.tight_layout()
+
+        safe_title = title.replace(" ", "_").replace("/", "_")
+        filename = f"{safe_title}.png"
+        plt.savefig(os.path.join(os.getcwd(), filename), dpi=300)
