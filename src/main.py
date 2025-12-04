@@ -40,7 +40,7 @@ def evaluate_and_report(data: pd.DataFrame, params: Dict, plot_title: str, main_
     df_sig = se.create_signals(df_proc)
     res = se.execute_backtest(df_sig)
 
-    metrics_filename = f"{main_ticker.lower()}_metrics.csv"
+    metrics_filename = f"{main_ticker}_metrics.csv"
     metrics = PerformanceAnalyzer.calculate_metrics(res, save_csv=True, filename=metrics_filename)
 
     logging.info("Performance Metrics for %s:", main_ticker)
