@@ -130,5 +130,5 @@ class GeneticOptimizer:
 
             population = new_pop
 
-        print(f"\Optimization completed. Best parameters: {best_global_ind}")
+        print(f"\nOptimization completed. Best parameters: {best_global_ind}")
         return best_global_ind
