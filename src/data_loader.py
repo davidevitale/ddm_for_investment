@@ -60,10 +60,10 @@ class DataLoader:
         os.makedirs(raw_dir, exist_ok=True)
         os.makedirs(processed_dir, exist_ok=True)
 
-        merged.to_csv(os.path.join(raw_dir, "initial_data.csv"), index=True)
-        df_train.to_csv(os.path.join(processed_dir, "train_data.csv"), index=True)
-        df_eval.to_csv(os.path.join(processed_dir, "test_data.csv"), index=True)
+        merged.to_csv(os.path.join(raw_dir, f"{main_ticker}_initial_data.csv"), index=True)
+        df_train.to_csv(os.path.join(processed_dir, f"{main_ticker}_train_data.csv"), index=True)
+        df_eval.to_csv(os.path.join(processed_dir, f"{main_ticker}_test_data.csv"), index=True)
 
-        print(f"Data downloaded. Train set: {len(df_train)} rows, Eval set: {len(df_eval)} rows.")
+        print(f"Data downloaded for {main_ticker}. Train set: {len(df_train)} rows, Eval set: {len(df_eval)} rows.")
         
         return df_train, df_eval

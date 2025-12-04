@@ -37,7 +37,7 @@ class FeatureEngineer:
         )
 
         if save_path is None:
-            save_path = os.path.join("data", "processed", "preprocessed_data.csv")
+            save_path = os.path.join("data", "processed", f"{main_ticker}_preprocessed_data.csv")
 
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         out_df.to_csv(save_path, index=True)
